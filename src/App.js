@@ -1,25 +1,27 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import {Routes, Route } from 'react-router-dom';
+import Signup from './pages/Signup';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Contacts from './components/Contacts.js';
+import Groups from './components/Groups';
+import Archives from './components/Archives';
+import Settings from './components/Settings';
+import { useUser } from './utils/UserContext';
 
-function App() {
+export default function App() {
+  const { userId, setUserId } = useUser();
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Routes>
+      <Route path="/" element={<Login setUserId={setUserId} />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/login" element={<Login setUserId={setUserId} />} />
+      <Route path="/dashboard" element={<Dashboard userId={userId} />} />
+      <Route path="/contacts" element={<Contacts />} />
+      <Route path="/groups" element={<Groups />} />
+      <Route path="/archives" element={<Archives />} />
+      <Route path="/settings" element={<Settings />} />
+    </Routes>
   );
 }
-
-export default App;
