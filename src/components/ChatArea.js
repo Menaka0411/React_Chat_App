@@ -30,34 +30,56 @@ export default function ChatArea({ selectedContact }) {
   const [replyTo, setReplyTo] = useState(null);
   const [showDeletePopup, setShowDeletePopup] = useState(false);
   const [deleteOption, setDeleteOption] = useState("me");
-
+  const [cyberSafeMode, setCyberSafeMode] = useState(false);
   const { userId } = useUser();
 
   useEffect(() => {
-    const handleReceiveMessage = (data) => {
-      console.log('Received message:', data);
+    const handleReceiveMessage = async (data) => {
       const isRelevant = 
         (data.senderId === userId && data.receiverId === selectedContact?.userId) ||
         (data.receiverId === userId && data.senderId === selectedContact?.userId);
-  
-      if (isRelevant) {
-        setMessages((prevMessages) => [...prevMessages, data]);
+
+      if (!isRelevant) return;
+
+      if (cyberSafeMode) {
+        try {
+          const { data: prediction } = await axios.post("http://localhost:5000/predict", {
+            message: data.text
+          });
+
+          if (prediction.label === "bully") {
+            setMessages((prev) => [
+              ...prev,
+              {
+                ...data,
+                text: "This message seems to be sensitive, so it was blocked.",
+                isBlocked: true
+              }
+            ]);
+            return;
+          }
+        } catch (err) {
+          console.error("Error predicting message:", err);
+        }
       }
+
+      setMessages((prev) => [...prev, data]);
     };
-  
     socket.on("receive-message", handleReceiveMessage);
   
     return () => {
       socket.off("receive-message", handleReceiveMessage);
     };
-  }, [userId, selectedContact?.userId]);
+  }, [userId, selectedContact?.userId, cyberSafeMode]);
   
   useEffect(() => {
     if (userId) {
       socket.emit("register-user", userId);
+      const mode = localStorage.getItem(`cyberSafeEnabled_${userId}`);
+      setCyberSafeMode(mode === "true"); 
     }
   }, [userId]);
-  
+
   useEffect(() => {
     if (selectedContact) {  
       setMessages([]);
@@ -118,40 +140,58 @@ export default function ChatArea({ selectedContact }) {
     return acc;
   }, {});
 
-  const handleSend = async () => {
-    if (!newMsg.trim()) return;
-  
-    try {
-      const { data: matchedUser } = await axios.post("http://localhost:3001/api/users/find-by-contact", {
-        phone: selectedContact.phone,
-        email: selectedContact.email
+const handleSend = async () => {
+  if (!newMsg.trim()) return;
+
+  try {
+    // Predict using Flask
+    if (cyberSafeMode) {
+      const { data: prediction } = await axios.post("http://localhost:5000/predict", {
+        message: newMsg
       });
-      if (!matchedUser) {
-        console.warn("User not found for contact");
+
+      if (prediction.label === "bully") {
+        // Block sender from sending
+        setMessages((prev) => [
+          ...prev,
+          {
+            _id: Date.now(),
+            senderId: userId,
+            text: "This message has sensitive content and cannot be sent.",
+            isBlocked: true,
+            timestamp: new Date().toISOString(),
+          }
+        ]);
+        setNewMsg("");
         return;
       }
-      
-      const receiverId = matchedUser._id; 
-  
-      const msgObj = {
-        senderId: userId,
-        receiverId,
-        text: newMsg,
-        timestamp: new Date().toISOString(),
-        replyTo: replyTo?._id || null
-      };
-  
-      const { data: savedMsg } = await axios.post("http://localhost:3001/messages", msgObj);
-      socket.emit("send-message", savedMsg);
-      setMessages((prevMessages) => [...prevMessages, savedMsg]);
-      setNewMsg("");
-      setReplyTo(null);
-
-    } catch (err) {
-      console.error("Error sending message:", err);
     }
-  };
-  
+
+    const { data: matchedUser } = await axios.post("http://localhost:3001/api/users/find-by-contact", {
+      phone: selectedContact.phone,
+      email: selectedContact.email
+    });
+
+    const receiverId = matchedUser._id;
+
+    const msgObj = {
+      senderId: userId,
+      receiverId,
+      text: newMsg,
+      timestamp: new Date().toISOString(),
+      replyTo: replyTo?._id || null
+    };
+
+    const { data: savedMsg } = await axios.post("http://localhost:3001/messages", msgObj);
+    socket.emit("send-message", savedMsg);
+    setMessages((prevMessages) => [...prevMessages, savedMsg]);
+    setNewMsg("");
+    setReplyTo(null);
+
+  } catch (err) {
+    console.error("Error sending message:", err);
+  }
+};
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleSend();
@@ -196,6 +236,16 @@ export default function ChatArea({ selectedContact }) {
     return (
       <div className="flex-1 h-full bg-white flex items-center justify-center">
         <p className="text-gray-400 text-lg">Select a contact to start chatting 💬</p>
+      </div>
+    );
+  }
+
+  if (cyberSafeMode && messages.length === 0) {
+    return (
+      <div className="flex-1 h-full bg-white flex items-center justify-center">
+        <p className="text-gray-500 font-medium text-center">
+          🛡 Cyber Safe Mode is enabled for the chats
+        </p>
       </div>
     );
   }
