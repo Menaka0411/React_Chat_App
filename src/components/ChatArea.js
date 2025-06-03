@@ -34,81 +34,143 @@ export default function ChatArea({ selectedContact }) {
   const { userId } = useUser();
 
   useEffect(() => {
-    const handleReceiveMessage = async (data) => {
-      const isRelevant = 
-        (data.senderId === userId && data.receiverId === selectedContact?.userId) ||
-        (data.receiverId === userId && data.senderId === selectedContact?.userId);
+    const handleReceiveMessage = (data) => {
+      const isSender = data.senderId === userId;
+      const isReceiver = data.receiverId === userId;
 
+      const isRelevant =
+        (isSender && data.receiverId === selectedContact?.userId) ||
+        (isReceiver && data.senderId === selectedContact?.userId);
       if (!isRelevant) return;
-
-      if (cyberSafeMode) {
-        try {
-          const { data: prediction } = await axios.post("http://localhost:5000/predict", {
-            message: data.text
-          });
-
-          if (prediction.label === "bully") {
-            setMessages((prev) => [
-              ...prev,
-              {
-                ...data,
-                text: "This message seems to be sensitive, so it was blocked.",
-                isBlocked: true
-              }
-            ]);
-            return;
-          }
-        } catch (err) {
-          console.error("Error predicting message:", err);
+      let safeMessage = data;
+      if (data.isBlocked) {
+        if (isSender) {
+          safeMessage = {
+            ...data,
+            text: "This message has offensive content and was blocked due to safe mode.",
+            isBlocked: true,
+            blockedForReceiver: true,
+          };
+        } else if (isReceiver && cyberSafeMode) {
+          safeMessage = {
+            ...data,
+            text: "This message seems to have some offensive content and can't be viewed due to safe mode.",
+            isBlocked: true,
+            blockedForReceiver: true,
+          };
         }
       }
 
-      setMessages((prev) => [...prev, data]);
+      setMessages((prev) => [...prev, safeMessage]);
     };
+
     socket.on("receive-message", handleReceiveMessage);
-  
+
     return () => {
       socket.off("receive-message", handleReceiveMessage);
     };
   }, [userId, selectedContact?.userId, cyberSafeMode]);
-  
+
   useEffect(() => {
     if (userId) {
       socket.emit("register-user", userId);
       const mode = localStorage.getItem(`cyberSafeEnabled_${userId}`);
-      setCyberSafeMode(mode === "true"); 
+      const enabled = mode === "true";
+      setCyberSafeMode(enabled);
     }
   }, [userId]);
 
+  const prevCyberSafeModeRef = useRef();
+  const initialMountRef = useRef(true);
+
   useEffect(() => {
-    if (selectedContact) {  
+    if (userId === null) return;
+
+    if (!initialMountRef.current && prevCyberSafeModeRef.current !== undefined && prevCyberSafeModeRef.current !== cyberSafeMode) {
+      setMessages(prev => [
+        ...prev,
+        {
+          _id: Date.now(),
+          senderId: "system",
+          text: `Cyber Safe Mode is ${cyberSafeMode ? "enabled" : "disabled"} for the chats`,
+          timestamp: new Date().toISOString(),
+          isSystem: true
+        }
+      ]);
+    }
+
+    prevCyberSafeModeRef.current = cyberSafeMode;
+    initialMountRef.current = false;
+  }, [cyberSafeMode, userId]);
+
+  useEffect(() => {
+    const handleStatusChange = (e) => {
+      const { userId: changedUser, status } = e.detail;
+      if (changedUser === userId) {
+        setCyberSafeMode(status);
+      }
+    };
+
+    window.addEventListener("cyberSafeStatusChange", handleStatusChange);
+    return () => window.removeEventListener("cyberSafeStatusChange", handleStatusChange);
+  }, [userId]);
+
+  useEffect(() => {
+    if (selectedContact) {
       setMessages([]);
+
       const fetchMessages = async () => {
         try {
           const { data: matchedUser } = await axios.post("http://localhost:3001/api/users/find-by-contact", {
             phone: selectedContact.phone,
-            email: selectedContact.email
+            email: selectedContact.email,
           });
-  
+
           if (!matchedUser) {
             console.warn("User not found for contact");
             return;
           }
+
           setContactUser(matchedUser);
           const realUserId = matchedUser._id;
+
           const res = await axios.get(`http://localhost:3001/messages/${userId}/${realUserId}`);
-          setMessages(res.data || []);
+
+          const processedMessages = res.data.map(msg => {
+            if (msg.isBlocked && msg.receiverId === userId && cyberSafeMode) {
+              return {
+                ...msg,
+                text: "This message seems to have some offensive content and can't be viewed due to safe mode."
+              };
+            }
+            return msg;
+          });
+          setMessages(processedMessages);
+
+
+          if (prevCyberSafeModeRef.current !== undefined) {
+            setMessages(prev => [
+              ...prev,
+              {
+                _id: 'system-msg',
+                senderId: 'system',
+                timestamp: new Date().toISOString(),
+                isSystem: true,
+              },
+            ]);
+          }
+
         } catch (error) {
           console.error(error);
         }
       };
-  
+
       fetchMessages();
     } else {
       setMessages([]);
     }
-  }, [selectedContact, userId]);
-  
+  }, [selectedContact, userId, cyberSafeMode]);
+
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -116,22 +178,21 @@ export default function ChatArea({ selectedContact }) {
   const getDateLabel = (dateStr) => {
     const today = new Date();
     const msgDate = new Date(dateStr);
-  
+
     today.setHours(0, 0, 0, 0);
     msgDate.setHours(0, 0, 0, 0);
-  
+
     const diff = Math.floor((today - msgDate) / (1000 * 60 * 60 * 24));
-  
+
     if (diff === 0) return "Today";
     if (diff === 1) return "Yesterday";
-  
+
     return msgDate.toLocaleDateString(undefined, {
       month: "long",
       day: "numeric",
       year: "numeric",
     });
   };
-  
 
   const groupedMessages = messages.reduce((acc, msg) => {
     const dateLabel = getDateLabel(msg.timestamp);
@@ -140,58 +201,97 @@ export default function ChatArea({ selectedContact }) {
     return acc;
   }, {});
 
-const handleSend = async () => {
-  if (!newMsg.trim()) return;
+  const handleSend = async () => {
+    if (!newMsg.trim()) return;
 
-  try {
-    // Predict using Flask
-    if (cyberSafeMode) {
-      const { data: prediction } = await axios.post("http://localhost:5000/predict", {
-        message: newMsg
+    try {
+      if (cyberSafeMode) {
+        const { data: prediction } = await axios.post("http://localhost:5000/predict", {
+          message: newMsg
+        });
+
+        if (prediction.label === "bully") {
+          const { data: matchedUser } = await axios.post("http://localhost:3001/api/users/find-by-contact", {
+            phone: selectedContact.phone,
+            email: selectedContact.email
+          });
+
+          const receiverId = matchedUser._id;
+
+          const blockedMsgObj = {
+            senderId: userId,
+            receiverId,
+            text: "This message has offensive content and is not sent due to safe mode.",
+            timestamp: new Date().toISOString(),
+            isBlocked: true,
+            blockedForReceiver: true,
+            safeMode: true
+          };
+
+          const { data: savedBlockedMsg } = await axios.post("http://localhost:3001/messages", blockedMsgObj);
+
+          setMessages((prev) => [...prev, savedBlockedMsg]);
+          setNewMsg("");
+          return;
+        }
+      }
+
+      const { data: matchedUser } = await axios.post("http://localhost:3001/api/users/find-by-contact", {
+        phone: selectedContact.phone,
+        email: selectedContact.email
       });
 
-      if (prediction.label === "bully") {
-        // Block sender from sending
-        setMessages((prev) => [
-          ...prev,
-          {
-            _id: Date.now(),
-            senderId: userId,
-            text: "This message has sensitive content and cannot be sent.",
-            isBlocked: true,
-            timestamp: new Date().toISOString(),
+      const receiverId = matchedUser._id;
+
+      const msgObj = {
+        senderId: userId,
+        receiverId,
+        text: newMsg,
+        timestamp: new Date().toISOString(),
+        replyTo: replyTo?._id || null,
+        safeMode: cyberSafeMode
+      };
+
+      const { data: savedMsg } = await axios.post("http://localhost:3001/messages", msgObj);
+
+        if (savedMsg?.isBlocked) {
+          if (savedMsg.showOnlyToSender) {
+            // Add message only for sender view
+            setMessages((prev) => [
+              ...prev,
+              {
+                _id: savedMsg.tempId || Date.now(),
+                senderId: userId,
+                receiverId: selectedContact.userId,
+                text: savedMsg.text || "This message has offensive content and is not sent due to safe mode.",
+                timestamp: new Date().toISOString(),
+                isBlocked: true,
+                blockedForReceiver: true
+              }
+            ]);
+          } else {
+            // General blocked message fallback
+            setMessages((prev) => [
+              ...prev,
+              {
+                ...savedMsg,
+                text: "This message has offensive content and is not sent due to safe mode.",
+                blockedForReceiver: true,
+                isBlocked: true,
+              }
+            ]);
           }
-        ]);
-        setNewMsg("");
-        return;
-      }
+        } else {
+          setMessages((prev) => [...prev, savedMsg]);
+        }
+
+      setNewMsg("");
+      setReplyTo(null);
+
+    } catch (err) {
+      console.error(err);
     }
-
-    const { data: matchedUser } = await axios.post("http://localhost:3001/api/users/find-by-contact", {
-      phone: selectedContact.phone,
-      email: selectedContact.email
-    });
-
-    const receiverId = matchedUser._id;
-
-    const msgObj = {
-      senderId: userId,
-      receiverId,
-      text: newMsg,
-      timestamp: new Date().toISOString(),
-      replyTo: replyTo?._id || null
-    };
-
-    const { data: savedMsg } = await axios.post("http://localhost:3001/messages", msgObj);
-    socket.emit("send-message", savedMsg);
-    setMessages((prevMessages) => [...prevMessages, savedMsg]);
-    setNewMsg("");
-    setReplyTo(null);
-
-  } catch (err) {
-    console.error("Error sending message:", err);
-  }
-};
+  };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleSend();
@@ -216,7 +316,7 @@ const handleSend = async () => {
         setDropdownOpen(false);
         setShowMoreOptions(false);
       }
-        if (
+      if (
         selectMode &&
         selectedMessages.length === 0 &&
         !event.target.closest(".message-container")
@@ -224,32 +324,21 @@ const handleSend = async () => {
         setSelectMode(false);
       }
     };
-  
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [selectMode, selectedMessages]);
-  
 
   if (!selectedContact) {
     return (
       <div className="flex-1 h-full bg-white flex items-center justify-center">
-        <p className="text-gray-400 text-lg">Select a contact to start chatting 💬</p>
+        <p className="text-gray-400 text-lg">Select a contact to start chatting 💬...</p>
       </div>
     );
   }
-
-  if (cyberSafeMode && messages.length === 0) {
-    return (
-      <div className="flex-1 h-full bg-white flex items-center justify-center">
-        <p className="text-gray-500 font-medium text-center">
-          🛡 Cyber Safe Mode is enabled for the chats
-        </p>
-      </div>
-    );
-  }
-
+  
   const toggleMessageSelection = (msgId) => {
     setSelectedMessages((prevSelected) =>
       prevSelected.includes(msgId)
@@ -384,7 +473,19 @@ const handleSend = async () => {
             {msgs.map((msg, i) => {
               const isSentByMe = msg.senderId === userId;
               const isSelected = selectedMessages.includes(msg._id); 
+              const isSystemMessage = msg.senderId === "system" && msg.isSystem;
+               
+              let displayedText = msg.text;
+                const isBlockedForMe = msg.isBlocked && msg.receiverId.toString() === userId && cyberSafeMode;
+                if (isBlockedForMe) displayedText = "This message seems to have some offensive content and can't be viewed due to safe mode.";
 
+                 if (isSystemMessage) {
+                  return (
+                    <div key={msg._id || i} className="text-center text-blue-500 font-semibold text-sm py-1">
+                      {displayedText}
+                    </div>
+                  );
+                }
               return (
                 <div key={msg._id || i} 
                 className={`flex ${isSentByMe ? "justify-end" : "justify-start"} mb-2`}
@@ -424,6 +525,7 @@ const handleSend = async () => {
 
           </div>
         ))}
+        
         <div ref={scrollRef} />
       </div>
 
@@ -497,64 +599,66 @@ const handleSend = async () => {
       )}
 
       {showDeletePopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center ml-48 z-50">
-          <div className="bg-white rounded-lg p-6 w-96 relative">
-            <button
-              className="absolute top-2 right-3 text-gray-400 hover:text-red-500 text-xl"
-              onClick={() => setShowDeletePopup(false)}
-            >
-              &times;
-            </button>
-            <h2 className="text-lg font-semibold mb-4">Do you want to delete?</h2>
-            <div
-              className="mb-3 flex items-center cursor-pointer"
-              onClick={() => setDeleteOption("me")}
-            >
-              <input
-                type="radio"
-                name="deleteOption"
-                checked={deleteOption === "me"}
-                onChange={() => setDeleteOption("me")}
-                className="mr-2"
-              />
-              <label className="cursor-pointer">Delete for me</label>
-            </div>
-            <div
-              className="mb-5 flex items-center cursor-pointer"
-              onClick={() => setDeleteOption("everyone")}
-            >
-              <input
-                type="radio"
-                name="deleteOption"
-                checked={deleteOption === "everyone"}
-                onChange={() => setDeleteOption("everyone")}
-                className="mr-2"
-              />
-              <label className="cursor-pointer">Delete for everyone</label>
-            </div>
-            <div className="flex justify-end space-x-2">
-              <button
-                className="px-4 py-1 bg-gray-300 text-gray-700 rounded"
-                onClick={() => setShowDeletePopup(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="px-4 py-1 bg-red-500 text-white rounded"
-                onClick={() => {
-                  console.log("Delete Option:", deleteOption);
-                  console.log("Selected Msgs:", selectedMessages);
-                  setShowDeletePopup(false);
-                  setSelectedMessages([]);
-                  setSelectMode(false);
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+  <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center ml-48 z-50">
+    <div className="bg-white rounded-lg p-6 w-96 relative">
+      {/* Close button */}
+      <button
+        className="absolute top-2 right-3 text-gray-400 hover:text-red-500 text-xl"
+        onClick={() => setShowDeletePopup(false)}
+      >
+        &times;
+      </button>
+
+      {/* Header */}
+      <h2 className="text-lg font-semibold mb-4">Do you want to delete?</h2>
+
+      {/* Radio Options */}
+      <div className="mb-3 flex items-center cursor-pointer" onClick={() => setDeleteOption("me")}>
+        <input
+          type="radio"
+          name="deleteOption"
+          value="me"
+          checked={deleteOption === "me"}
+          onChange={() => setDeleteOption("me")}
+          className="mr-2"
+        />
+        <label className="cursor-pointer">Delete for Me</label>
+      </div>
+
+      <div className="mb-5 flex items-center cursor-pointer" onClick={() => setDeleteOption("everyone")}>
+        <input
+          type="radio"
+          name="deleteOption"
+          value="everyone"
+          checked={deleteOption === "everyone"}
+          onChange={() => setDeleteOption("everyone")}
+          className="mr-2"
+        />
+        <label className="cursor-pointer">Delete for Everyone</label>
+      </div>
+
+      {/* Buttons */}
+      <div className="flex justify-end space-x-2">
+        <button
+          className="px-4 py-1 bg-gray-300 text-gray-700 rounded"
+          onClick={() => setShowDeletePopup(false)}
+        >
+          Cancel
+        </button>
+        <button
+          className="px-4 py-1 bg-red-500 text-white rounded"
+          onClick={() => {
+            setShowDeletePopup(false);
+            setSelectedMessages([]);
+            setSelectMode(false);
+          }}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
     </div>
   );

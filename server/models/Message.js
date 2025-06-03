@@ -20,10 +20,33 @@ const MessageSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    isBlocked: { 
+      type: Boolean, 
+      default: false 
+    },
+    safeMode: {
+      type: Boolean,
+      default: false
+    },
+    blockedForReceiver: { 
+      type: Boolean, 
+      default: false 
+    },
+    isOffensive: { 
+      type: Boolean, 
+      default: false 
+    },
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Message',
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-module.exports = mongoose.model('Message', MessageSchema);
+const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);
+
+module.exports = Message;

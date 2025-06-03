@@ -21,15 +21,23 @@ export default function Contacts({ isMobileViewActive }) {
     email: "",
   });
   const [showContacts, setShowContacts] = useState(true);
+  const [openDropdownId, setOpenDropdownId] = useState(null);
 
-  useEffect(() => {
-    if (userId) {
-      axios
-        .get(`http://localhost:3001/contacts/${userId}`)
-        .then((res) => setContacts(res.data || []))
-        .catch((err) => console.error("Failed to fetch contacts:", err));
-    }
-  }, [userId]);
+ useEffect(() => {
+  if (userId) {
+    axios
+      .get(`http://localhost:3001/contacts/${userId}`)
+      .then((res) => {
+        const updatedContacts = (res.data || []).map((contact) => ({
+          ...contact,
+          isFriend: contact.isFriend || false,
+        }));
+        setContacts(updatedContacts);
+      })
+      .catch((err) => console.error("Failed to fetch contacts:", err));
+  }
+}, [userId]);
+
 
   const sortContacts = (contactsList) => {
     switch (sortOption) {
@@ -84,10 +92,6 @@ export default function Contacts({ isMobileViewActive }) {
     window.location.href = `tel:${phone}`;
   };
 
-  const handleOptions = (contactId) => {
-    alert(`Options for contact ${contactId}`);
-  };
-
   const handleContactClick = (contact) => {
     setSelectedContact(contact);
     setShowContacts(false); 
@@ -96,6 +100,20 @@ export default function Contacts({ isMobileViewActive }) {
   if (isMobileViewActive && window.innerWidth < 768) {
     return null;
   }
+  const handleFriendToggle = async (id) => {
+    try {
+      const res = await axios.patch(`http://localhost:3001/contacts/${id}/friend-toggle`);
+      const updatedContact = res.data;
+
+      setContacts((prevContacts) =>
+        prevContacts.map((contact) =>
+          contact._id === id ? { ...contact, isFriend: updatedContact.isFriend } : contact
+        )
+      );
+    } catch (err) {
+      console.error("Failed to toggle friend status:", err);
+    }
+  };
 
   return (
     <div className={`flex flex-col h-full ${showContacts ? "p-4" : "p-0"}`}>
@@ -194,12 +212,31 @@ export default function Contacts({ isMobileViewActive }) {
                     >
                       <IoCallOutline className="text-xl text-purple-600" />
                     </button>
-                    <button
-                      className="p-2 rounded-full hover:bg-purple-100 transition"
-                      onClick={() => handleOptions(contact._id)}
-                    >
-                      <IoEllipsisHorizontal className="text-xl text-purple-600" />
-                    </button>
+                   <div className="relative">
+                      <button
+                        className="p-2 rounded-full hover:bg-purple-100 transition"
+                        onClick={() =>
+                          setOpenDropdownId(openDropdownId === contact._id ? null : contact._id)
+                        }
+                      >
+                        <IoEllipsisHorizontal className="text-xl text-purple-600" />
+                      </button>
+
+                      {openDropdownId === contact._id && (
+                        <div className="absolute right-0 mt-2 bg-white shadow-md border rounded-md text-sm z-10 w-28">
+                          <button
+                            onClick={() => {
+                              handleFriendToggle(contact._id);
+                              setOpenDropdownId(null); 
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-purple-100"
+                          >
+                            {contact.isFriend ? "Unfriend" : "Friend"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 </li>
               ))}

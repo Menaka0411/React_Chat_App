@@ -11,7 +11,12 @@ const contactSchema = new mongoose.Schema(
     phone: String,
     email: String,
     userProfile: String,
+     isFriend: {
+      type: Boolean,
+      default: false,
+    },
   },
+  
   { timestamps: true }
 );
 

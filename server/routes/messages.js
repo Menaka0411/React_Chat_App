@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const Message = require('../models/message'); 
+const Message = require('../models/Message'); 
 const mongoose = require('mongoose');
-const User = require('./users');
+const User = require('../models/User');
+const { hasFriendlyHistory } = require('../utils/MessageUtils');
+const axios = require('axios');
 
 router.get('/:senderId/:receiverId', async (req, res) => {
   try {
@@ -18,25 +20,10 @@ router.get('/:senderId/:receiverId', async (req, res) => {
       ...msg._doc,
       senderId: msg.senderId.toString(),
       receiverId: msg.receiverId.toString(),
+      isBlocked: msg.isBlocked || false,
+      blockedForReceiver: msg.blockedForReceiver || false
     })));
     
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server Error');
-  }
-});
-
-router.post('/', async (req, res) => {
-  try {
-    const { senderId, receiverId, text, timestamp } = req.body;
-    const newMessage = new Message({
-      senderId,
-      receiverId,
-      text,
-      timestamp,
-    });
-    await newMessage.save();
-    res.json(newMessage);
   } catch (err) {
     console.error(err);
     res.status(500).send('Server Error');
@@ -52,7 +39,6 @@ router.get('/recent-chats/:userId', async (req, res) => {
     })
     .sort({ timestamp: -1 });
 
-    // Group messages by other user
     const chatMap = new Map();
 
     for (const msg of messages) {
@@ -62,7 +48,6 @@ router.get('/recent-chats/:userId', async (req, res) => {
       }
     }
 
-    // Fetch basic user info (phone, name, etc.)
     const recentChats = await Promise.all(
       Array.from(chatMap.entries()).map(async ([otherUserId, lastMsg]) => {
         const user = await User.findById(otherUserId).select("name phone userProfile");
@@ -81,6 +66,60 @@ router.get('/recent-chats/:userId', async (req, res) => {
   } catch (err) {
     console.error("Failed to fetch recent chats", err);
     res.status(500).json({ message: "Server Error" });
+  }
+});
+
+
+router.post('/', async (req, res) => {
+  try {
+    const { senderId, receiverId, text, timestamp, safeMode } = req.body;
+
+    if (safeMode) {
+      
+      const receiverUser = await User.findById(receiverId);
+      const receiverSafeModeEnabled = receiverUser?.cyberSafeMode ?? false;
+      
+      const response = await axios.post("http://localhost:5000/predict", { message: text });
+      const label = response.data.label;
+
+      const isOffensive = label === "bully"; 
+      const friendly = await hasFriendlyHistory(senderId, receiverId);
+
+      if (isOffensive && receiverSafeModeEnabled && !friendly) {
+        const blockedMsg = {
+          senderId,
+          receiverId,
+          text: "This message seems to have some offensive content and can't be viewed due to safe mode.",
+          isBlocked: true,
+          showOnlyToSender: true,
+          blockedForReceiver: true,
+          timestamp: new Date().toISOString(),
+        };
+
+        const saved = await Message.create(blockedMsg);
+
+        return res.status(200).json({
+          ...saved._doc,
+          text, 
+          isBlocked: true,
+          blockedForReceiver: true
+        });
+      }
+    }
+
+    const newMessage = new Message({
+      senderId,
+      receiverId,
+      text,
+      timestamp,
+    });
+
+    await newMessage.save();
+    res.json(newMessage);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server Error");
   }
 });
 

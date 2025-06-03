@@ -231,6 +231,11 @@ const renderProfileInfo = (isLogoutPage) => {
                 setEmailNotif(enabled);
                 if (userId) {
                   localStorage.setItem(`cyberSafeEnabled_${userId}`, enabled);
+                  window.dispatchEvent(
+                  new CustomEvent("cyberSafeStatusChange", {
+                    detail: { userId, status: enabled },
+                  })
+                );
                 }
                 
                 if (enabled) {

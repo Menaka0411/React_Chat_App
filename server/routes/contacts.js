@@ -2,8 +2,8 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const Contact = require("../models/Contact");
+const { hasFriendlyHistory } = require("../utils/MessageUtils");
 
-// Multer setup
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, "uploads/");
@@ -14,7 +14,36 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// GET contacts by userId
+router.patch("/:id/friend-toggle", async (req, res) => {
+  try {
+    const contact = await Contact.findById(req.params.id);
+    if (!contact) return res.status(404).json({ error: "Contact not found" });
+
+    contact.isFriend = !contact.isFriend;
+    await contact.save();
+
+    res.json(contact);
+  } catch (err) {
+    console.error("Error toggling friend status:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/friendship-status", async (req, res) => {
+  const { senderId, receiverId } = req.query;
+  if (!senderId || !receiverId) {
+    return res.status(400).json({ error: "Missing senderId or receiverId" });
+  }
+
+  try {
+    const result = await hasFriendlyHistory(senderId, receiverId);
+    res.json({ areFriends: result });
+  } catch (error) {
+    console.error("Error checking friendship:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/:userId", async (req, res) => {
   try {
     const contacts = await Contact.find({ userId: req.params.userId });
@@ -45,5 +74,6 @@ router.post("/:userId", upload.single("profile"), async (req, res) => {
     res.status(500).json({ error: "Failed to create contact" });
   }
 });
+
 
 module.exports = router;
