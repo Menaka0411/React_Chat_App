@@ -37,5 +37,28 @@ A real-time chat application that allows users to communicate instantly. Built w
 ---
 
 ## App Design
-[<img src="./app_design.png" width="1000"/>](./app_design.png)
+
+<table>
+  <tr>
+    <td><img src="./screenshots/img1.png" width="500"/></td>
+    <td><img src="./screenshots/img2.png" width="500"/></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/img3.png" width="500"/></td>
+    <td><img src="./screenshots/img4.png" width="500"/></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/img5.png" width="500"/></td>
+    <td><img src="./screenshots/img6.png" width="500"/></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/img7.png" width="500"/></td>
+    <td><img src="./screenshots/img8.png" width="500"/></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/img9.png" width="500"/></td>
+    <td><img src="./screenshots/img10.png" width="500"/></td>
+  </tr>
+</table>
+
 
