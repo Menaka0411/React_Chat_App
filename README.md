@@ -40,12 +40,12 @@ A real-time chat application that allows users to communicate instantly. Built w
 
 <table>
   <tr>
-    <td><img src="./screenshots/img1.png" width="600"/></td>
-    <td><img src="./screenshots/img2.png" width="600"/></td>
+    <td><img src="./screenshots/img1.png" width="500"/></td>
+    <td><img src="./screenshots/img2.png" width="500"/></td>
   </tr>
   <tr>
-    <td><img src="./screenshots/Img3.png" width="600"/></td>
-    <td><img src="./screenshots/img4.png" width="600"/></td>
+    <td><img src="./screenshots/Img3.png" width="500"/></td>
+    <td><img src="./screenshots/img4.png" width="500"/></td>
   </tr>
   <tr>
     <td><img src="./screenshots/img5.png" width="500"/></td>
