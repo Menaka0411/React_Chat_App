@@ -37,4 +37,5 @@ A real-time chat application that allows users to communicate instantly. Built w
 ---
 
 ## App Design
-![App Design](./app_design.png)
+[<img src="./app_design.png" width="400"/>](./app_design.png)
+
