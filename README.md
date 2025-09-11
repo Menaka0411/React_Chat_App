@@ -44,7 +44,7 @@ A real-time chat application that allows users to communicate instantly. Built w
     <td><img src="./screenshots/img2.png" width="500"/></td>
   </tr>
   <tr>
-    <td><img src="./screenshots/img3.png" width="500"/></td>
+    <td><img src="./screenshots/Img3.png" width="500"/></td>
     <td><img src="./screenshots/img4.png" width="500"/></td>
   </tr>
   <tr>
