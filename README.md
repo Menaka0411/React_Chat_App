@@ -121,7 +121,7 @@ Request body:
 
 ```json
 {
-  "message": "Example message to classify"
+  "message": "You are a shit"
 }
 ```
 
